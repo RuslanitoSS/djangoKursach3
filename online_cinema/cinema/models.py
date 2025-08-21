@@ -206,6 +206,8 @@ class Chapter(models.Model):
     def reviews_count(self):
         return self.reviews.count()
 
+    ##Валидация уникальности фильма или сериала
+    ##Валидация формата данных фильма или сериала
     def clean(self):
         super().clean()
 
@@ -313,6 +315,7 @@ class Comment(models.Model):
     def __str__(self):
         return f"Comment by {self.user.username if self.user else 'Unknown'} on {self.chapter.title}"
 
+    ##Валидация содержания комментариев
     def clean(self):
         # Проверка на запрещённые слова
         banned_words = ['badword1', 'badword2', 'badword3']  # Пример списка запрещённых слов
