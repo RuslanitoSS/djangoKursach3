@@ -47,7 +47,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'django_filters',
     'cinema',
-    
+    'fan_clubs', 
 ]
 
 MIDDLEWARE = [
@@ -61,6 +61,8 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'online_cinema.urls'
+
+AUTH_USER_MODEL = 'cinema.User'
 
 TEMPLATES = [
     {

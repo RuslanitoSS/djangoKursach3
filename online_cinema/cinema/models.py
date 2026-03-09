@@ -424,3 +424,5 @@ class ViewHistory(models.Model):
 
     def __str__(self):
         return f"{self.user.username if self.user else 'Unknown'} viewed {self.chapter.title if self.chapter else 'Unknown'} at {self.viewed_at}"
+
+

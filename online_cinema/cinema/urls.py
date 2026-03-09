@@ -41,4 +41,5 @@ router.register(r'ViewHistorys', ViewHistoryViewSet)
 
 urlpatterns = [
     path('v1/', include(router.urls)),
+    path('v1/clubs/', include('fan_clubs.urls')),
 ]
