@@ -1,183 +1,178 @@
 from django.contrib import admin
-from django.utils.translation import gettext_lazy as _
-from .models import (
-    FanClub, 
-    FanClubPhoto, 
-    FanClubMembership, 
-    FanClubApplicationAttachment
-)
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
+from .models import FanClub, FanClubPhoto, FanClubMembership, FanClubApplicationAttachment
 
-# ==============================================================================
-# ИНЛАЙНЫ (Встроенные модели)
-# ==============================================================================
 
 class FanClubPhotoInline(admin.TabularInline):
     model = FanClubPhoto
-    extra = 0
-    verbose_name = _('Фото клуба')
-    verbose_name_plural = _('Фото клуба')
-    readonly_fields = ('uploaded_at', 'file_size')
-    # raw_id_fields не нужен для inline, если фото не тысячи, но можно добавить при необходимости
-    # raw_id_fields = ('uploaded_by',)
+    extra = 1
+    fields = ['photo_preview', 'caption', 'uploaded_by', 'uploaded_at']
+    readonly_fields = ['photo_preview', 'uploaded_by', 'uploaded_at']
 
-class FanClubMembershipInline(admin.TabularInline):
-    model = FanClubMembership
-    extra = 0
-    verbose_name = _('Членство')
-    verbose_name_plural = _('Членства')
-    readonly_fields = ('applied_at', 'joined_at', 'updated_at')
-    raw_id_fields = ('user', 'reviewed_by')
+    def photo_preview(self, obj):
+        if obj.photo:
+            return format_html('<img src="{}" style="max-height: 100px; border-radius: 5px;" />', obj.photo.url)
+        return "Нет фото"
+    photo_preview.short_description = 'Предпросмотр'
 
-# ==============================================================================
-# 1. ФАН-КЛУБ
-# ==============================================================================
+
+class FanClubApplicationAttachmentInline(admin.TabularInline):
+    model = FanClubApplicationAttachment
+    extra = 0
+    fields = ['photo_preview', 'caption', 'file_size', 'uploaded_at', 'moved_to_club_gallery', 'club_photo']
+    readonly_fields = ['photo_preview', 'file_size', 'uploaded_at', 'moved_to_club_gallery', 'club_photo']
+    can_delete = False
+
+    def photo_preview(self, obj):
+        if obj.photo:
+            return format_html('<img src="{}" style="max-height: 100px; border-radius: 5px;" />', obj.photo.url)
+        return "Нет фото"
+    photo_preview.short_description = 'Предпросмотр'
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(FanClub)
 class FanClubAdmin(admin.ModelAdmin):
-    # ✅ list_display: основные поля для отображения
-    list_display = (
-        'title', 
-        'franchise', 
-        'chapter', 
-        'created_by', 
-        'get_members_count', 
-        'is_active',
-        'created_at'
-    )
+    list_display = ['title', 'cover_preview', 'slug', 'is_active', 'created_at', 'get_admins_count', 'get_members_count']
+    list_filter = ['is_active', 'created_at', 'franchise', 'chapter']
+    search_fields = ['title', 'description']
+    inlines = [FanClubPhotoInline]
+    prepopulated_fields = {'slug': ('title',)}
+    readonly_fields = ['created_at', 'updated_at', 'created_by']
     
-    # ✅ list_filter: фильтры справа (включая связанные модели)
-    list_filter = (
-        'is_active', 
-        'franchise', 
-        'chapter', 
-        'created_at',
-        'created_by'
-    )
-    
-    # ✅ search_fields: поиск по полям связанных моделей (через __)
-    search_fields = (
-        'title', 
-        'description', 
-        'franchise__title', 
-        'chapter__title', 
-        'created_by__username',
-        'created_by__email'
-    )
-    
-    # ✅ raw_id_fields: обязательно для ForeignKey на User и большие таблицы
-    # Предотвращает загрузку выпадающего списка со всеми пользователями/франшизами
-    raw_id_fields = ('franchise', 'chapter', 'created_by')
-    
-    # ✅ readonly_fields: поля, которые нельзя редактировать вручную
-    readonly_fields = ('slug', 'created_at', 'updated_at', 'slug')
-    
-    # ✅ filter_horizontal: удобный виджет для ManyToMany (если бы были в этой модели)
-    # filter_horizontal = ('some_m2m_field',)
-    
-    # ✅ Inlines: отображение связанных объектов внутри страницы клуба
-    inlines = [FanClubPhotoInline, FanClubMembershipInline]
-    
-    # ✅ fieldsets: группировка полей на странице редактирования
     fieldsets = (
-        (_('Основная информация'), {
-            'fields': ('title', 'description', 'cover_photo', 'slug')
-        }),
-        (_('Привязка к контенту'), {
-            'fields': ('franchise', 'chapter')
-        }),
-        (_('Создатель и настройки'), {
-            'fields': ('created_by', 'is_active')
-        }),
-        (_('Требования и заявки'), {
-            'fields': ('requirements_text', 'application_questions')
-        }),
-        (_('Лимиты файлов'), {
-            'fields': (
-                'max_application_photos', 
-                'max_club_photos', 
-                'allowed_file_types', 
-                'max_file_size_mb'
-            )
-        }),
-        (_('Даты'), {
-            'fields': ('created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
+        ('Основное', {'fields': ['title', 'description', 'slug', 'cover_photo']}),
+        ('Привязка', {'fields': ['franchise', 'chapter', 'created_by']}),
+        ('Настройки', {'fields': ['requirements_text', 'application_questions']}),
+        ('Лимиты', {'fields': ['max_application_photos', 'max_club_photos', 'allowed_file_types', 'max_file_size_mb']}),
+        ('Статус', {'fields': ['is_active', 'created_at', 'updated_at']}),
     )
 
-# ==============================================================================
-# 2. ФОТО ГАЛЕРЕИ КЛУБА
-# ==============================================================================
+    def cover_preview(self, obj):
+        if obj.cover_photo:
+            return format_html('<img src="{}" style="max-height: 50px; border-radius: 5px;" />', obj.cover_photo.url)
+        return "Нет обложки"
+    cover_preview.short_description = 'Обложка'
+
+    def get_admins_count(self, obj):
+        return obj.get_admins_count()
+    get_admins_count.short_description = 'Админов'
+
+    def get_members_count(self, obj):
+        return obj.get_members_count()
+    get_members_count.short_description = 'Участников'
+
 
 @admin.register(FanClubPhoto)
 class FanClubPhotoAdmin(admin.ModelAdmin):
-    list_display = ('photo_preview', 'club', 'caption', 'uploaded_by', 'uploaded_at', 'file_size')
-    list_filter = ('uploaded_at', 'club', 'uploaded_by')
-    search_fields = ('caption', 'club__title', 'uploaded_by__username')
-    raw_id_fields = ('club', 'uploaded_by')  # ✅ Важно для больших баз
-    readonly_fields = ('uploaded_at', 'file_size', 'photo_preview')
-    date_hierarchy = 'uploaded_at'
+    list_display = ['club', 'photo_preview', 'caption', 'uploaded_at', 'file_size']
+    list_filter = ['club', 'uploaded_at']
+    search_fields = ['club__title', 'caption']
+    readonly_fields = ['photo_preview', 'file_size', 'uploaded_at']
 
-    @admin.display(description=_('Фото'))
     def photo_preview(self, obj):
         if obj.photo:
-            return f"📷 {obj.photo.name.split('/')[-1]}"
-        return _('Нет фото')
+            return format_html('<img src="{}" style="max-height: 50px; border-radius: 5px;" />', obj.photo.url)
+        return "Нет фото"
+    photo_preview.short_description = 'Фото'
 
-# ==============================================================================
-# 3. ЧЛЕНСТВО / ЗАЯВКИ
-# ==============================================================================
 
 @admin.register(FanClubMembership)
 class FanClubMembershipAdmin(admin.ModelAdmin):
-    list_display = ('user', 'club', 'club_franchise', 'role', 'status', 'applied_at', 'reviewed_by')
-    list_filter = ('status', 'role', 'club', 'applied_at', 'reviewed_by')
-    search_fields = (
-        'user__username', 
-        'user__email',
-        'club__title', 
-        'club__franchise__title', 
-        'club__chapter__title'
-    )
-    raw_id_fields = ('user', 'club', 'reviewed_by')  # ✅ Обязательно
-    readonly_fields = ('applied_at', 'updated_at', 'joined_at')
-    date_hierarchy = 'applied_at'
+    list_display = ['user', 'club', 'role_badge', 'status_badge', 'applied_at', 'joined_at']
+    list_filter = ['role', 'status', 'club', 'applied_at']
+    search_fields = ['user__username', 'club__title']
+    inlines = [FanClubApplicationAttachmentInline]
+    readonly_fields = ['applied_at', 'updated_at', 'joined_at', 'reviewed_by']
     
-    # ✅ Actions: массовые действия
-    actions = ['approve_memberships', 'reject_memberships']
+    fieldsets = (
+        ('Информация', {'fields': ['user', 'club', 'role', 'status']}),
+        ('Данные заявки', {'fields': ['application_data']}),
+        ('Модерация', {'fields': ['reviewed_by', 'review_comment', 'joined_at']}),
+        ('Даты', {'fields': ['applied_at', 'updated_at'], 'classes': ['collapse']}),
+    )
 
-    @admin.display(description=_('Франшиза'))
-    def club_franchise(self, obj):
-        return obj.club.franchise if obj.club else '-'
+    actions = ['approve_memberships', 'reject_memberships', 'promote_to_admin', 'demote_to_member']
 
-    @admin.action(description=_('Одобрить выбранные заявки'))
+    def role_badge(self, obj):
+        if obj.role == 'admin':
+            return format_html('<span style="color: green; font-weight: bold;">👑 Администратор</span>')
+        return '<span style="color: blue;">👤 Участник</span>'
+    role_badge.short_description = 'Роль'
+
+    def status_badge(self, obj):
+        colors = {
+            'pending': 'orange',
+            'approved': 'green',
+            'rejected': 'red',
+            'banned': 'gray'
+        }
+        return format_html(f'<span style="color: {colors.get(obj.status, "black")}; font-weight: bold;">{obj.get_status_display()}</span>')
+    status_badge.short_description = 'Статус'
+
+    @admin.action(description='✅ Одобрить выбранные заявки')
     def approve_memberships(self, request, queryset):
-        # Упрощённая логика для админки
-        queryset.update(status='approved')
-        
-    @admin.action(description=_('Отклонить выбранные заявки'))
-    def reject_memberships(self, request, queryset):
-        queryset.update(status='rejected')
+        count = queryset.filter(status='pending').count()
+        for membership in queryset.filter(status='pending'):
+            membership.approve(request.user)
+        self.message_user(request, f"Одобрено {count} заявок")
 
-# ==============================================================================
-# 4. ВЛОЖЕНИЯ К ЗАЯВКЕ (ФОТО НА ПРОВЕРКУ)
-# ==============================================================================
+    @admin.action(description='❌ Отклонить выбранные заявки')
+    def reject_memberships(self, request, queryset):
+        count = queryset.filter(status='pending').count()
+        for membership in queryset.filter(status='pending'):
+            membership.reject(request.user, "Отклонено администратором")
+        self.message_user(request, f"Отклонено {count} заявок")
+
+    @admin.action(description='👑 Повысить до администратора')
+    def promote_to_admin(self, request, queryset):
+        success = 0
+        for membership in queryset.filter(status='approved', role='member'):
+            try:
+                membership.promote_to_admin(request.user)
+                success += 1
+            except Exception:
+                pass
+        self.message_user(request, f"Повышено {success} участников")
+
+    @admin.action(description='👤 Понизить до участника')
+    def demote_to_member(self, request, queryset):
+        success = 0
+        for membership in queryset.filter(status='approved', role='admin'):
+            try:
+                membership.demote_to_member(request.user)
+                success += 1
+            except Exception:
+                pass
+        self.message_user(request, f"Понижено {success} администраторов")
+
 
 @admin.register(FanClubApplicationAttachment)
 class FanClubApplicationAttachmentAdmin(admin.ModelAdmin):
-    list_display = ('membership', 'photo_preview', 'caption', 'moved_to_club_gallery', 'uploaded_at')
-    list_filter = ('moved_to_club_gallery', 'uploaded_at', 'membership__club')
-    search_fields = (
-        'caption', 
-        'membership__user__username', 
-        'membership__club__title'
-    )
-    raw_id_fields = ('membership', 'club_photo')  # ✅ Обязательно
-    readonly_fields = ('uploaded_at', 'file_size', 'photo_preview', 'moved_to_club_gallery')
-    date_hierarchy = 'uploaded_at'
+    list_display = ['membership', 'photo_preview', 'caption', 'uploaded_at', 'moved_to_club_gallery']
+    list_filter = ['moved_to_club_gallery', 'uploaded_at', 'membership__club']
+    readonly_fields = ['photo_preview', 'file_size', 'uploaded_at']
+    search_fields = ['membership__user__username', 'membership__club__title']
 
-    @admin.display(description=_('Фото'))
     def photo_preview(self, obj):
         if obj.photo:
-            return f"📎 {obj.photo.name.split('/')[-1]}"
-        return _('Нет фото')
+            return format_html('<img src="{}" style="max-height: 50px; border-radius: 5px;" />', obj.photo.url)
+        return "Нет фото"
+    photo_preview.short_description = 'Фото'
+
+    actions = ['move_to_gallery']
+
+    @admin.action(description='📁 Перенести выбранные фото в галерею клуба')
+    def move_to_gallery(self, request, queryset):
+        success = 0
+        errors = 0
+        for attachment in queryset.filter(moved_to_club_gallery=False):
+            try:
+                attachment.move_to_club_gallery(uploaded_by=request.user)
+                success += 1
+            except Exception:
+                errors += 1
+        self.message_user(request, f"Перенесено: {success}, Ошибок: {errors}")

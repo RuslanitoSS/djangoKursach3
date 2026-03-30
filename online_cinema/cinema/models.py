@@ -320,6 +320,7 @@ class ChapterPersonRole(models.Model):
     class Meta:
         verbose_name = _('Роль в главе')
         verbose_name_plural = _('Роли в главах')
+        unique_together = ['chapter', 'person', 'role']
 
 
 # Комментарий
