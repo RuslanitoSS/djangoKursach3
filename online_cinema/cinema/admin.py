@@ -1,4 +1,3 @@
-from .subscription_pdf_export import export_subscription_pdf
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from .models import (
@@ -7,7 +6,7 @@ from .models import (
     ChapterPersonRole, Comment, Review, Rating,
     Playlist, PlaylistChapter, ViewHistory
 )
-from .chapter_pdf_export import export_chapter_pdf
+from .subscription_pdf_export import export_subscription_pdf
 
 # Инлайны
 class EpisodeInline(admin.TabularInline):
@@ -117,8 +116,7 @@ class FranchiseAdmin(admin.ModelAdmin):
 
 @admin.register(Chapter)
 class ChapterAdmin(admin.ModelAdmin):
-    
-    actions = [export_chapter_pdf]
+    # ✅ Убрано: actions = [export_chapter_pdf]
 
     list_display = (
         'title_display', 'franchise', 'release_date',
@@ -232,4 +230,3 @@ class ViewHistoryAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'chapter__title')
     raw_id_fields = ('user', 'chapter')
     date_hierarchy = 'viewed_at'
-
