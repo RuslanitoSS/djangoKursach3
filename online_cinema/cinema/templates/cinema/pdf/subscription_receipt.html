@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: DejaVu Sans, sans-serif; font-size: 12pt; color: #333; }
+    .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+    .header h1 { margin: 0; font-size: 18pt; }
+    .meta { margin: 10px 0; }
+    .user-info, .subscription-info { margin: 20px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f5f5f5; }
+    .total { font-weight: bold; font-size: 14pt; text-align: right; margin-top: 20px; }
+    .status { display: inline-block; padding: 5px 15px; border-radius: 3px; color: white; }
+    .status.active { background: #28a745; }
+    .status.inactive { background: #dc3545; }
+    .footer { margin-top: 40px; text-align: center; font-size: 10pt; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Online Cinema</h1>
+    <p>Квитанция о покупке подписки #{{ subscription.id }}</p>
+    <p class="meta">Дата: {{ subscription.created_at|date:"d.m.Y H:i" }}</p>
+  </div>
+
+  <div class="user-info">
+    <h3>Пользователь</h3>
+    <p><strong>{{ subscription.user.username }}</strong><br>
+    Email: {{ subscription.user.email }}<br>
+    ID: {{ subscription.user.id }}</p>
+  </div>
+
+  <div class="subscription-info">
+    <h3>Подписка</h3>
+    <table>
+      <tr><th>Название</th><td>{{ subscription.subscription.title }}</td></tr>
+      <tr><th>Длительность</th><td>{{ subscription.subscription.duration_days }} дней</td></tr>
+      <tr><th>Период действия</th><td>{{ subscription.start_date|date:"d.m.Y" }} — {{ subscription.end_date|date:"d.m.Y" }}</td></tr>
+      <tr><th>Цена</th><td>${{ subscription.subscription.price_usd }}</td></tr>
+      <tr><th>Статус</th><td>
+        <span class="status {% if subscription.is_currently_active %}active{% else %}inactive{% endif %}">
+          {% if subscription.is_currently_active %}Активна{% else %}Не активна{% endif %}
+        </span>
+      </td></tr>
+    </table>
+  </div>
+
+  {% if subscription.payment_methods.exists %}
+  <div class="payment-info">
+    <h3>Способ оплаты</h3>
+    <p>
+      {% for method in subscription.payment_methods.all %}
+        {{ method.get_payment_type_display }}
+        {% if method.masked_card_number %}({{ method.masked_card_number }}){% endif %}
+      {% endfor %}
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="total">
+    Итого: ${{ subscription.subscription.price_usd }}
+  </div>
+
+  <div class="footer">
+    <p>Спасибо за выбор Online Cinema!<br>
+    Вопросы? support@onlinecinema.local</p>
+  </div>
+</body>
+</html>

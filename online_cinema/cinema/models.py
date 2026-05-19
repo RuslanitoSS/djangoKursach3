@@ -221,6 +221,24 @@ class Chapter(models.Model):
     def reviews_count(self):
         return self.reviews.count()
 
+    # ================== values_list примеры ==================
+    def get_episode_ids(self):
+        """
+        Возвращает плоский список ID эпизодов главы.
+        Идеально для проверок: `if episode_id in self.get_episode_ids()`
+        """
+        return list(self.episodes.values_list('id', flat=True))
+
+    def get_actor_names(self):
+        """
+        Возвращает список кортежей (Имя, Фамилия) всех актёров главы.
+        Используется для быстрого рендера списков/титров без загрузки полных объектов Person.
+        """
+        return list(
+            self.people.filter(chapter_roles__role='actor').values_list('first_name', 'last_name')
+        )
+    # =========================================================
+
     def clean(self):
         super().clean()
         required_fields = {

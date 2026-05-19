@@ -17,6 +17,8 @@ from .views import (
     PlaylistViewSet,
     ViewHistoryViewSet,
     PlaylistChapterViewSet,
+    # 👇 Импортируем новую функцию для PDF
+    subscription_receipt_pdf,
 )
 
 # Создание маршрутов для ViewSets
@@ -24,7 +26,7 @@ router = DefaultRouter()
 router.register(r'users', UserViewSet)
 router.register(r'payment-methods', UserPaymentMethodViewSet)
 router.register(r'subscriptions', SubscriptionViewSet)
-router.register(r'user-subscriptions', UserSubscriptionViewSet)
+router.register(r'user-subscriptions', UserSubscriptionViewSet, basename='usersubscription')
 router.register(r'genres', GenreViewSet)
 router.register(r'franchises', FranchiseViewSet)
 router.register(r'chapters', ChapterViewSet)
@@ -36,10 +38,15 @@ router.register(r'reviews', ReviewViewSet)
 router.register(r'ratings', RatingViewSet)
 router.register(r'playlists', PlaylistViewSet)
 router.register(r'playlist-chapters', PlaylistChapterViewSet)
-router.register(r'ViewHistorys', ViewHistoryViewSet)
+router.register(r'view-histories', ViewHistoryViewSet)  # 👇 исправил на нижний регистр с дефисом
 
 
 urlpatterns = [
     path('v1/', include(router.urls)),
     path('v1/clubs/', include('fan_clubs.urls')),
+    
+    # 👇 PDF-генерация (не API, а прямой файл)
+    path('v1/admin/subscriptions/<int:subscription_id>/receipt.pdf/', 
+         subscription_receipt_pdf, 
+         name='subscription_receipt_pdf'),
 ]

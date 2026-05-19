@@ -1,3 +1,4 @@
+from .subscription_pdf_export import export_subscription_pdf
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from .models import (
@@ -70,6 +71,8 @@ class SubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(UserSubscription)
 class UserSubscriptionAdmin(admin.ModelAdmin):
+    actions = [export_subscription_pdf]
+    
     list_display = ('user_display', 'subscription_display', 'start_date', 'end_date', 'is_active', 'auto_renew')
     list_filter = ('is_active', 'auto_renew', 'created_at')
     search_fields = ('user__username', 'subscription__title')

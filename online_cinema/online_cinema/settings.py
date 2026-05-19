@@ -157,3 +157,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
         },
     },
 } """
+
+# === PDF Generation Settings ===
+STATIC_ROOT = BASE_DIR / 'staticfiles' 
+
+
