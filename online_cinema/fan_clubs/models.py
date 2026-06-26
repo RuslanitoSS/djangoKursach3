@@ -6,8 +6,57 @@ from django.utils import timezone
 from django.urls import reverse
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
+import os
 
 User = get_user_model()
+
+# ==============================================================================
+# УТИЛИТЫ ВАЛИДАЦИИ
+# ==============================================================================
+def validate_image_file(file_obj, max_size_mb=10, allowed_types=None):
+    """
+    Универсальная валидация изображения.
+    
+    Args:
+        file_obj: файл для проверки
+        max_size_mb: максимальный размер в МБ
+        allowed_types: список разрешённых расширений (например, ['jpg', 'jpeg', 'png'])
+    """
+    if not file_obj:
+        return
+    
+    # Проверка размера
+    max_bytes = max_size_mb * 1024 * 1024
+    if file_obj.size > max_bytes:
+        raise ValidationError(
+            _(f"Размер файла не должен превышать {max_size_mb} МБ "
+              f"(получено {file_obj.size / 1024 / 1024:.2f} МБ)")
+        )
+    
+    # Проверка типа файла
+    if allowed_types:
+        ext = os.path.splitext(file_obj.name)[1].lower().lstrip('.')
+        if ext not in [t.lower() for t in allowed_types]:
+            raise ValidationError(
+                _(f"Недопустимый формат файла: .{ext}. "
+                  f"Разрешены: {', '.join(allowed_types)}")
+            )
+    
+    # Проверка MIME-типа (защита от подмены расширения)
+    allowed_mime = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'webp': 'image/webp',
+    }
+    
+    if hasattr(file_obj, 'content_type'):
+        if file_obj.content_type not in allowed_mime.values():
+            raise ValidationError(
+                _("Недопустимый тип файла. Разрешены только изображения.")
+            )
+
 
 # ==============================================================================
 # 1. ФАН-КЛУБ
@@ -16,11 +65,9 @@ class FanClub(models.Model):
     title = models.CharField(_('Название'), max_length=255)
     description = models.TextField(_('Описание'))
     
-    # Обложка клуба (вместо лого)
     cover_photo = models.ImageField(_('Обложка'), upload_to='fan_club_covers/', blank=True, null=True)
     slug = models.SlugField(_('Слаг'), unique=True, blank=True, null=True)
     
-    # Привязка к контенту (из приложения cinema)
     franchise = models.ForeignKey(
         'cinema.Franchise', 
         on_delete=models.CASCADE, 
@@ -38,7 +85,6 @@ class FanClub(models.Model):
         verbose_name=_('Глава')
     )
     
-    # Создатель клуба (используем settings.AUTH_USER_MODEL для безопасности связей)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
         on_delete=models.SET_NULL, 
@@ -48,7 +94,6 @@ class FanClub(models.Model):
         verbose_name=_('Создатель')
     )
     
-    # Настройки вступления
     requirements_text = models.TextField(
         _('Требования для вступления'),
         help_text=_("Описание того, что нужно предоставить для вступления"), 
@@ -61,27 +106,23 @@ class FanClub(models.Model):
         help_text=_("Список вопросов: [{'id': 'q1', 'text': 'Вопрос?'}]")
     )
     
-    # Лимиты фото
+    # 👇 Добавлены ограничения через validators
     max_application_photos = models.PositiveIntegerField(
         _('Макс. фото в заявке'),
-        default=3, 
-        help_text=_("Макс. фото в заявке")
+        default=3,
     )
     max_club_photos = models.PositiveIntegerField(
         _('Макс. фото в галерее'),
-        default=20, 
-        help_text=_("Макс. фото в галерее клуба")
+        default=20,
     )
     allowed_file_types = models.CharField(
         _('Разрешённые типы файлов'),
         max_length=255, 
         default='jpg,jpeg,png', 
-        help_text=_("Разрешённые расширения")
     )
     max_file_size_mb = models.PositiveIntegerField(
         _('Макс. размер файла (МБ)'),
-        default=5, 
-        help_text=_("Макс. размер файла в МБ")
+        default=5,
     )
     
     is_active = models.BooleanField(_('Активен'), default=True)
@@ -90,7 +131,14 @@ class FanClub(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.title)
+            base_slug = slugify(self.title)
+            slug = base_slug
+            counter = 1
+            # 👇 Защита от дубликатов slug
+            while FanClub.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
         super().save(*args, **kwargs)
 
     def get_absolute_url(self):
@@ -109,18 +157,77 @@ class FanClub(models.Model):
         return self.memberships.filter(status='approved').count()
 
     def has_admin(self, user):
-        """Проверить, является ли пользователь администратором клуба"""
         return self.memberships.filter(user=user, role='admin', status='approved').exists()
 
     def is_creator(self, user):
-        """Проверить, является ли пользователь создателем клуба"""
         return self.created_by == user
+
+    def get_allowed_file_types_list(self):
+        """Возвращает список разрешённых расширений"""
+        return [t.strip().lower() for t in self.allowed_file_types.split(',') if t.strip()]
 
     def clean(self):
         super().clean()
-        # Валидация размера обложки
-        if self.cover_photo and self.cover_photo.size > 10 * 1024 * 1024:  # 10MB
-            raise ValidationError({'cover_photo': _("Размер обложки не должен превышать 10MB")})
+        errors = {}
+        
+        # 👇 Валидация размера обложки
+        if self.cover_photo:
+            try:
+                validate_image_file(
+                    self.cover_photo, 
+                    max_size_mb=10,
+                    allowed_types=['jpg', 'jpeg', 'png']
+                )
+            except ValidationError as e:
+                errors['cover_photo'] = e.messages
+        
+        # 👇 Валидация названия
+        if self.title and len(self.title.strip()) < 3:
+            errors['title'] = _("Название должно содержать минимум 3 символа")
+        
+        # 👇 Валидация описания
+        if self.description and len(self.description.strip()) < 10:
+            errors['description'] = _("Описание должно содержать минимум 10 символов")
+        
+        # 👇 Валидация лимитов (разумные пределы)
+        if self.max_application_photos < 1 or self.max_application_photos > 20:
+            errors['max_application_photos'] = _("Допустимо от 1 до 20 фото в заявке")
+        
+        if self.max_club_photos < 1 or self.max_club_photos > 200:
+            errors['max_club_photos'] = _("Допустимо от 1 до 200 фото в галерее")
+        
+        if self.max_file_size_mb < 1 or self.max_file_size_mb > 50:
+            errors['max_file_size_mb'] = _("Допустимо от 1 до 50 МБ")
+        
+        # 👇 Валидация allowed_file_types
+        allowed = self.get_allowed_file_types_list()
+        valid_extensions = {'jpg', 'jpeg', 'png', 'gif', 'webp'}
+        invalid = [ext for ext in allowed if ext not in valid_extensions]
+        if invalid:
+            errors['allowed_file_types'] = _(
+                f"Недопустимые расширения: {', '.join(invalid)}. "
+                f"Разрешены: {', '.join(valid_extensions)}"
+            )
+        
+        # 👇 Валидация структуры application_questions
+        if self.application_questions:
+            if not isinstance(self.application_questions, list):
+                errors['application_questions'] = _("Должен быть список вопросов")
+            else:
+                for i, q in enumerate(self.application_questions):
+                    if not isinstance(q, dict):
+                        errors['application_questions'] = _(
+                            f"Вопрос #{i+1} должен быть объектом"
+                        )
+                        break
+                    if 'text' not in q or not q['text'].strip():
+                        errors['application_questions'] = _(
+                            f"Вопрос #{i+1} должен содержать текст"
+                        )
+                        break
+        
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return self.title
@@ -132,13 +239,12 @@ class FanClub(models.Model):
 
 
 # ==============================================================================
-# 2. ФОТО ГАЛЕРЕИ КЛУБА (Публичные фото)
+# 2. ФОТО ГАЛЕРЕИ КЛУБА
 # ==============================================================================
 class FanClubPhoto(models.Model):
     club = models.ForeignKey(FanClub, on_delete=models.CASCADE, related_name='photos', verbose_name=_('Клуб'))
     photo = models.ImageField(_('Фото'), upload_to='fan_club_gallery/')
     caption = models.CharField(_('Подпись'), max_length=255, blank=True, null=True)
-    # Используем settings.AUTH_USER_MODEL для связи
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
         on_delete=models.SET_NULL, 
@@ -155,6 +261,21 @@ class FanClubPhoto(models.Model):
             self.file_size = self.photo.size
         super().save(*args, **kwargs)
 
+    def clean(self):
+        super().clean()
+        if self.photo:
+            # 👇 Валидация размера и типа фото
+            max_size = self.club.max_file_size_mb if self.club else 5
+            allowed_types = self.club.get_allowed_file_types_list() if self.club else ['jpg', 'jpeg', 'png']
+            validate_image_file(self.photo, max_size_mb=max_size, allowed_types=allowed_types)
+            
+            # 👇 Проверка лимита фото в галерее
+            if self.club and self.pk is None:  # Только при создании
+                if not self.club.can_add_club_photo():
+                    raise ValidationError(
+                        _("Достигнут лимит фото в галерее клуба")
+                    )
+
     def __str__(self):
         return f"Photo for {self.club.title}"
 
@@ -165,7 +286,7 @@ class FanClubPhoto(models.Model):
 
 
 # ==============================================================================
-# 3. ЗАЯВКА / ЧЛЕНСТВО (с ролями)
+# 3. ЗАЯВКА / ЧЛЕНСТВО
 # ==============================================================================
 class FanClubMembership(models.Model):
     ROLE_CHOICES = [
@@ -180,7 +301,6 @@ class FanClubMembership(models.Model):
         ('banned', _('Заблокирован')),
     ]
 
-    # Используем settings.AUTH_USER_MODEL для связи
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
         on_delete=models.CASCADE, 
@@ -237,32 +357,43 @@ class FanClubMembership(models.Model):
 
     def clean(self):
         super().clean()
+        errors = {}
         
-        # Проверка: нельзя понизить последнего администратора
-        if self.pk:  # Только при обновлении существующей записи
+        # 👇 Проверка: нельзя понизить последнего администратора
+        if self.pk:
             try:
                 old_instance = FanClubMembership.objects.get(pk=self.pk)
                 if old_instance.role == 'admin' and self.role == 'member':
                     admins_count = self.club.get_admins_count()
                     if admins_count <= 1:
-                        raise ValidationError(_("Нельзя понизить последнего администратора клуба"))
+                        errors['role'] = _("Нельзя понизить последнего администратора клуба")
             except FanClubMembership.DoesNotExist:
                 pass
         
-        # Проверка: администратор должен быть утверждённым участником
+        # 👇 Проверка: администратор должен быть утверждённым
         if self.role == 'admin' and self.status not in ['approved']:
-            raise ValidationError(_("Только утверждённые участники могут быть администраторами"))
+            errors['role'] = _("Только утверждённые участники могут быть администраторами")
+        
+        # 👇 Проверка: нельзя заблокировать самого себя (если последний админ)
+        if self.status == 'banned' and self.role == 'admin':
+            if self.club.get_admins_count() <= 1:
+                errors['status'] = _("Нельзя заблокировать последнего администратора")
+        
+        # 👇 Валидация application_data
+        if self.application_data and self.club.application_questions:
+            if not isinstance(self.application_data, dict):
+                errors['application_data'] = _("Данные заявки должны быть объектом")
+        
+        if errors:
+            raise ValidationError(errors)
 
     def approve(self, moderator):
-        """Одобрить заявку"""
-        # Если это первая заявка в клубе - делаем создателем и админом
         is_first_member = self.club.memberships.filter(status='approved').count() == 0
         
         self.status = 'approved'
         self.reviewed_by = moderator
         self.joined_at = timezone.now()
         
-        # Первый участник автоматически становится администратором
         if is_first_member:
             self.role = 'admin'
         
@@ -270,7 +401,6 @@ class FanClubMembership(models.Model):
         self.delete_application_photos()
 
     def reject(self, moderator, comment: str):
-        """Отклонить заявку"""
         self.status = 'rejected'
         self.reviewed_by = moderator
         self.review_comment = comment
@@ -279,26 +409,26 @@ class FanClubMembership(models.Model):
         self.delete_application_photos()
 
     def delete_application_photos(self):
-        """Удалить все вложения заявки"""
         for attachment in self.application_attachments.all():
             if attachment.photo:
                 attachment.photo.delete()
             attachment.delete()
 
     def promote_to_admin(self, moderator):
-        """Повысить до администратора"""
-        if not moderator.fan_club_memberships.filter(club=self.club, role='admin', status='approved').exists():
+        if not moderator.fan_club_memberships.filter(
+            club=self.club, role='admin', status='approved'
+        ).exists():
             raise ValidationError(_("Только администратор может назначать других администраторов"))
         
         self.role = 'admin'
         self.save()
 
     def demote_to_member(self, moderator):
-        """Понизить до участника"""
-        if not moderator.fan_club_memberships.filter(club=self.club, role='admin', status='approved').exists():
+        if not moderator.fan_club_memberships.filter(
+            club=self.club, role='admin', status='approved'
+        ).exists():
             raise ValidationError(_("Только администратор может понижать администраторов"))
         
-        # Проверка: не последний ли админ
         if self.club.get_admins_count() <= 1:
             raise ValidationError(_("Нельзя понизить последнего администратора клуба"))
         
@@ -310,7 +440,7 @@ class FanClubMembership(models.Model):
 
 
 # ==============================================================================
-# 4. ВЛОЖЕНИЯ К ЗАЯВКЕ (Фото на проверку)
+# 4. ВЛОЖЕНИЯ К ЗАЯВКЕ
 # ==============================================================================
 class FanClubApplicationAttachment(models.Model):
     membership = models.ForeignKey(
@@ -324,7 +454,6 @@ class FanClubApplicationAttachment(models.Model):
     uploaded_at = models.DateTimeField(_('Дата загрузки'), auto_now_add=True)
     file_size = models.PositiveIntegerField(_('Размер файла'), blank=True, null=True)
     
-    # Флаг: перенесено ли фото в галерею клуба
     moved_to_club_gallery = models.BooleanField(_('Перенесено в галерею'), default=False)
     club_photo = models.ForeignKey(
         FanClubPhoto, 
@@ -340,15 +469,37 @@ class FanClubApplicationAttachment(models.Model):
             self.file_size = self.photo.size
         super().save(*args, **kwargs)
 
+    def clean(self):
+        super().clean()
+        if self.photo:
+            # 👇 Валидация размера и типа
+            max_size = self.membership.club.max_file_size_mb if self.membership.club else 5
+            allowed_types = (
+                self.membership.club.get_allowed_file_types_list() 
+                if self.membership.club else ['jpg', 'jpeg', 'png']
+            )
+            validate_image_file(self.photo, max_size_mb=max_size, allowed_types=allowed_types)
+            
+            # 👇 Проверка лимита фото в заявке
+            if self.membership and self.pk is None:
+                if not self.membership.can_add_more_application_photos():
+                    raise ValidationError(
+                        _("Достигнут лимит фото в заявке")
+                    )
+            
+            # 👇 Заявка должна быть в статусе pending
+            if self.membership and self.membership.status != 'pending':
+                raise ValidationError(
+                    _("Нельзя добавлять фото к обработанной заявке")
+                )
+
     def move_to_club_gallery(self, caption=None, uploaded_by=None):
-        """Перенести фото из заявки в галерею клуба"""
         if self.moved_to_club_gallery:
             raise ValidationError(_("Фото уже перенесено в галерею"))
         
         if not self.membership.club.can_add_club_photo():
             raise ValidationError(_("Достигнут лимит фото в галерее клуба"))
         
-        # Создаём копию в галерее
         club_photo = FanClubPhoto.objects.create(
             club=self.membership.club,
             photo=self.photo,

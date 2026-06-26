@@ -6,9 +6,66 @@ from .models import (
     ChapterPersonRole, Comment, Review, Rating,
     Playlist, PlaylistChapter, ViewHistory
 )
+import csv
+from django.http import HttpResponse
+from django.contrib import messages
+from django.utils.translation import gettext_lazy as _
+
 from .subscription_pdf_export import export_subscription_pdf
 
-# Инлайны
+@admin.action(description="📤 Экспорт выбранных глав в CSV")
+def export_chapters_to_csv(modeladmin, request, queryset):
+    """Создаёт CSV-файл с детальной информацией о выбранных главах"""
+    # 🔥 Важные настройки для русской локализации
+    response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
+    response['Content-Disposition'] = 'attachment; filename*=UTF-8\'\'chapters_export.csv'
+
+    # 🔥 Используем точку с запятой как разделитель (для русского Excel)
+    # quoting=csv.QUOTE_MINIMAL — автоматически экранирует кавычки и запятые в данных
+    writer = csv.writer(response, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+    
+    # Заголовки
+    writer.writerow([
+        'ID', 
+        'Название', 
+        'Франшиза', 
+        'Дата выхода', 
+        'Тип контента', 
+        'Возрастной рейтинг', 
+        'Страна',
+        'Средний рейтинг', 
+        'Просмотры', 
+        'Требуемая подписка'
+    ])
+
+    for chapter in queryset:
+        # 🔥 Безопасное получение значений с защитой от None
+        franchise_name = chapter.franchise.title if chapter.franchise else '—'
+        release_date = chapter.release_date.strftime('%Y-%m-%d') if chapter.release_date else '—'
+        content_type = chapter.get_content_type_display() if chapter.content_type else '—'
+        country = chapter.country or '—'
+        subscription = chapter.required_subscription.title if chapter.required_subscription else 'Бесплатно'
+        
+        writer.writerow([
+            chapter.id,
+            chapter.title,
+            franchise_name,
+            release_date,
+            content_type,
+            chapter.age_rating,
+            country,
+            chapter.average_rating(),
+            chapter.view_count,
+            subscription,
+        ])
+
+    modeladmin.message_user(
+        request, 
+        f"✅ Экспортировано {queryset.count()} записей в CSV", 
+        level=messages.SUCCESS
+    )
+    return response
+
 class EpisodeInline(admin.TabularInline):
     model = Episode
     extra = 0
@@ -38,7 +95,7 @@ class UserAdmin(admin.ModelAdmin):
     filter_horizontal = ('groups', 'user_permissions')
     fieldsets = (
         (_('Личная информация'), {'fields': ('username', 'password')}),
-        (_('Персональные данные'), {'fields': ('first_name', 'last_name', 'email', 'profile_pic_url', 'description')}),
+        (_('Персональные данные'), {'fields': ('first_name', 'last_name', 'email', 'profile_pic', 'description')}),
         (_('Разрешения'), {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         (_('Важные даты'), {'fields': ('last_login', 'date_joined')}),
     )
@@ -116,7 +173,7 @@ class FranchiseAdmin(admin.ModelAdmin):
 
 @admin.register(Chapter)
 class ChapterAdmin(admin.ModelAdmin):
-    # ✅ Убрано: actions = [export_chapter_pdf]
+    actions = [export_chapters_to_csv] 
 
     list_display = (
         'title_display', 'franchise', 'release_date',
@@ -169,7 +226,20 @@ class ChapterPersonRoleAdmin(admin.ModelAdmin):
     list_display = ('chapter', 'person', 'role')
     list_filter = ('role',)
     search_fields = ('chapter__title', 'person__first_name', 'person__last_name')
-    raw_id_fields = ('chapter', 'person')
+    
+    # 👇 ЗАМЕНЯЕМ raw_id_fields НА autocomplete_fields
+    # Это дает удобный поиск с выпадающим списком прямо на этой же странице!
+    autocomplete_fields = ('chapter', 'person')
+    
+    # Опционально: удобный порядок полей при редактировании
+    fieldsets = (
+        (None, {
+            'fields': ('chapter', 'person', 'role')
+        }),
+    )
+    
+    # Сортировка списка для удобства
+    ordering = ('-chapter__release_date', 'person__last_name')
 
 
 @admin.register(Comment)
@@ -230,3 +300,42 @@ class ViewHistoryAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'chapter__title')
     raw_id_fields = ('user', 'chapter')
     date_hierarchy = 'viewed_at'
+
+from django.contrib import admin
+from .models import CompanySettings
+
+
+@admin.register(CompanySettings)
+class CompanySettingsAdmin(admin.ModelAdmin):
+    """Админка для настроек компании"""
+    list_display = ['company_name', 'age_rating', 'updated_at', 'updated_by']
+    readonly_fields = ['updated_at', 'updated_by']
+    
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('company_name', 'copyright_text', 'age_rating')
+        }),
+        ('Поддержка', {
+            'fields': ('support_text', 'support_button_text')
+        }),
+        ('Социальные сети', {
+            'fields': ('social_links',),
+            'description': 'Формат: {"vk": "...", "telegram": "...", "youtube": "...", "ok": "..."}'
+        }),
+        ('Футер', {
+            'fields': ('footer_poem',),
+            'classes': ('wide',)
+        }),
+        ('Мета-данные', {
+            'fields': ('updated_at', 'updated_by'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        """Запрещаем создание новых объектов (только один singleton)"""
+        return not CompanySettings.objects.exists()
+    
+    def has_delete_permission(self, request, obj=None):
+        """Запрещаем удаление настроек"""
+        return False

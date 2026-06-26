@@ -5,6 +5,22 @@ from django.utils import timezone
 
 User = get_user_model()
 
+
+# ==============================================================================
+# СЕРИАЛИЗАТОРЫ ДЛЯ СВЯЗАННЫХ МОДЕЛЕЙ
+# ==============================================================================
+class FranchiseSerializer(serializers.Serializer):
+    """Упрощённый сериализатор для франшизы"""
+    id = serializers.IntegerField()
+    title = serializers.CharField()
+
+
+class ChapterSerializer(serializers.Serializer):
+    """Упрощённый сериализатор для главы"""
+    id = serializers.IntegerField()
+    title = serializers.CharField()
+
+
 # ==============================================================================
 # ФОТО КЛУБА
 # ==============================================================================
@@ -42,7 +58,10 @@ class FanClubApplicationAttachmentSerializer(serializers.ModelSerializer):
         return f"{obj.file_size / 1024 / 1024:.2f} MB" if obj.file_size else None
 
     def get_can_move_to_gallery(self, obj):
-        return not obj.moved_to_club_gallery and obj.membership.club.can_add_club_photo()
+        # Проверка на существование клуба и метода, чтобы избежать ошибок при удалении
+        if hasattr(obj, 'membership') and obj.membership and hasattr(obj.membership.club, 'can_add_club_photo'):
+            return not obj.moved_to_club_gallery and obj.membership.club.can_add_club_photo()
+        return False
 
 
 # ==============================================================================
@@ -56,8 +75,10 @@ class FanClubMembershipSerializer(serializers.ModelSerializer):
     application_attachments = FanClubApplicationAttachmentSerializer(many=True, read_only=True)
     photos_count = serializers.IntegerField(source='get_application_photos_count', read_only=True)
     can_add_photos = serializers.BooleanField(source='can_add_more_application_photos', read_only=True)
-    is_admin = serializers.BooleanField(source='is_admin', read_only=True)
-    is_creator = serializers.BooleanField(source='is_creator', read_only=True)
+    
+    # 🔥 ИСПРАВЛЕНО: Используем SerializerMethodField вместо BooleanField с source
+    is_admin = serializers.SerializerMethodField()
+    is_creator = serializers.SerializerMethodField()
 
     class Meta:
         model = FanClubMembership
@@ -67,6 +88,14 @@ class FanClubMembershipSerializer(serializers.ModelSerializer):
             'application_attachments', 'photos_count', 'can_add_photos', 'is_admin', 'is_creator'
         ]
         read_only_fields = ['status', 'joined_at', 'applied_at', 'review_comment', 'role', 'user']
+
+    # 🔥 Методы для вычисления is_admin и is_creator
+    def get_is_admin(self, obj):
+        # is_admin() в модели уже проверяет role=='admin' и status=='approved'
+        return obj.is_admin()
+
+    def get_is_creator(self, obj):
+        return obj.is_creator()
 
 
 class FanClubMembershipCreateSerializer(serializers.ModelSerializer):
@@ -115,9 +144,16 @@ class FanClubSerializer(serializers.ModelSerializer):
     can_add_photo = serializers.BooleanField(source='can_add_club_photo', read_only=True)
     members_count = serializers.IntegerField(source='get_members_count', read_only=True)
     admins_count = serializers.IntegerField(source='get_admins_count', read_only=True)
+    
+    # Здесь тоже лучше использовать SerializerMethodField для явности, 
+    # хотя ошибка была только в MembershipSerializer
     is_admin = serializers.SerializerMethodField()
     is_creator = serializers.SerializerMethodField()
+    
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    
+    franchise = FranchiseSerializer(read_only=True)
+    chapter = ChapterSerializer(read_only=True)
 
     class Meta:
         model = FanClub

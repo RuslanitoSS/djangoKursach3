@@ -662,3 +662,110 @@ class ViewHistory(models.Model):
 
     def __str__(self):
         return f"{self.user.username if self.user else 'Unknown'} viewed {self.chapter.title if self.chapter else 'Unknown'} at {self.viewed_at}"
+
+
+
+from django.db import models
+from django.contrib.postgres.fields import JSONField
+
+
+class CompanySettings(models.Model):
+    """
+    Настройки компании (singleton - один объект на весь сайт).
+    Хранит информацию о компании, контакты и настройки футера.
+    """
+    # Основная информация
+    company_name = models.CharField(
+        _("Название компании"),
+        max_length=255,
+        default="Сома-кола",
+        help_text="Название компании, отображается в футере"
+    )
+    copyright_text = models.CharField(
+        _("Текст копирайта"),
+        max_length=255,
+        default="© 2003-2024 Не_Кинопоиск",
+        help_text="Текст копирайта в футере"
+    )
+    age_rating = models.CharField(
+        _("Возрастной рейтинг"),
+        max_length=10,
+        default="18+",
+        choices=[
+            ("0+", "0+"),
+            ("6+", "6+"),
+            ("12+", "12+"),
+            ("16+", "16+"),
+            ("18+", "18+"),
+        ]
+    )
+    
+    # Поддержка
+    support_text = models.CharField(
+        _("Текст поддержки"),
+        max_length=255,
+        default="Мы всегда готовы вам помочь.",
+        blank=True
+    )
+    support_button_text = models.CharField(
+        _("Текст кнопки поддержки"),
+        max_length=100,
+        default="Задать вопрос",
+        blank=True
+    )
+    
+    # Социальные сети (JSON)
+    social_links = models.JSONField(
+        _("Ссылки на социальные сети"),
+        default=dict,
+        blank=True,
+        help_text='{"vk": "...", "telegram": "...", "youtube": "...", "ok": "..."}'
+    )
+    
+    # Поэма/текст в футере
+    footer_poem = models.TextField(
+        _("Текст в футере (поэма)"),
+        blank=True,
+        default="",
+        help_text="Многострочный текст, отображается в футере"
+    )
+    
+    # Мета-данные
+    updated_at = models.DateTimeField(_("Обновлено"), auto_now=True)
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="company_settings_updates",
+        verbose_name=_("Обновлено пользователем")
+    )
+    
+    class Meta:
+        verbose_name = _("Настройки компании")
+        verbose_name_plural = _("Настройки компании")
+    
+    def __str__(self):
+        return f"Настройки компании: {self.company_name}"
+    
+    @classmethod
+    def get_settings(cls):
+        """Получить singleton-объект настроек (создать если не существует)"""
+        settings, created = cls.objects.get_or_create(
+            pk=1,
+            defaults={
+                'company_name': 'Сома-кола',
+                'copyright_text': '© 2003-2024 Не_Кинопоиск',
+                'age_rating': '18+',
+                'support_text': 'Мы всегда готовы вам помочь.',
+                'support_button_text': 'Задать вопрос',
+                'social_links': {
+                    'vk': '',
+                    'telegram': '',
+                    'youtube': '',
+                    'ok': '',
+                },
+                'footer_poem': '',
+            }
+        )
+        return settings
